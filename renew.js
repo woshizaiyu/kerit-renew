@@ -284,16 +284,34 @@ async function apiFreeStatus(state) {
 
 /* ============================== 浏览器续期 ============================== */
 
-/** 是否已登录：dashboard 渲染出免费机卡片（#free-body 非空且含关键文案） */
+/** 是否已登录：dashboard 外壳渲染（侧边栏+用户区），免费机卡片在 Free Hosting 子页 */
 async function isLoggedIn(page) {
   try {
     const ok = await page.evaluate(() => {
-      const body = document.getElementById('free-body');
       const txt = (document.body.innerText || '').slice(0, 3000);
-      return !!(body && /heartbeat|Time remaining|Time Remaining|Renew/i.test(txt));
+      return /Systems Online|Free Hosting|My Servers/i.test(txt);
     }).catch(() => false);
     return !!ok;
   } catch { return false; }
+}
+
+/** 进入 Free Hosting 子页（dashboard 首页是总览，免费机卡片需点左侧导航） */
+async function gotoFreeHosting(page) {
+  // 已在子页则直接返回
+  const hasBtn = await page.locator('#free-renew-btn, #free-body').first().isVisible({ timeout: 2000 }).catch(() => false);
+  if (hasBtn) return true;
+  const nav = page.locator('aside a:has-text("Free Hosting"), nav a:has-text("Free Hosting")').first();
+  try {
+    await nav.waitFor({ state: 'visible', timeout: 10000 });
+    await nav.click({ timeout: 5000 });
+    log('👆 已进入 Free Hosting 子页');
+  } catch (e) {
+    log(`⚠️ 未找到 Free Hosting 导航: ${String(e.message).slice(0, 100)}`);
+    return false;
+  }
+  await page.locator('#free-body, #page-free').first().waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
+  await sleep(2500);
+  return true;
 }
 
 /** 页内读状态（页内 fetch 自动带 kguard 头+cookie，结果最准） */
@@ -327,6 +345,14 @@ async function renewHeartbeat(context, liveState) {
     if (!(await isLoggedIn(page))) {
       result.note = '未登录/被重定向';
       await safeShot(page, 'kerit-nologin.png');
+      return result;
+    }
+
+    // dashboard 首页是总览，先进 Free Hosting 子页
+    if (!(await gotoFreeHosting(page))) {
+      result.note = '未找到 Free Hosting 入口（可能 UI 改版，需补录）';
+      result.status = 'NO_BUTTON';
+      await safeShot(page, 'kerit-nofree.png');
       return result;
     }
 
@@ -376,11 +402,28 @@ async function renewHeartbeat(context, liveState) {
       return result;
     }
 
-    // 验证码：require_captcha 时等 widget 渲染（invisible 由页内自动 execute）
+    // 验证码：interactive 模式需先点 hCaptcha checkbox（token 经回调填入），
+    // invisible 才由页内自动 execute。token 就绪后再点续期，否则页内直接 toast 劝退。
     if (st0.ok && st0.data.require_captcha) {
-      log('🛡️ 本次需要验证，等待验证组件就绪…');
-      await page.locator('#free-captcha').waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
-      await sleep(4000);
+      log('🛡️ 本次需要验证，点击 hCaptcha checkbox…');
+      try {
+        const frame = page.frameLocator('#free-captcha iframe').first();
+        await frame.locator('#checkbox').click({ timeout: 10000 });
+        log('👆 已点验证框，等待 token…');
+      } catch (e) {
+        log(`⚠️ 验证框点击失败: ${String(e.message).slice(0, 100)}`);
+      }
+      await safeShot(page, 'kerit-captcha.png');
+      let tok = '';
+      for (let i = 0; i < 30 && !tok; i++) {
+        await sleep(2000);
+        tok = await page.evaluate(() => {
+          const el = document.querySelector('[name="h-captcha-response"]');
+          return el ? (el.value || '') : '';
+        }).catch(() => '');
+      }
+      if (tok) log('✅ 验证 token 已就绪');
+      else log('⚠️ 未拿到验证 token（可能弹图片题），继续点击由页内逻辑判定');
     }
     await safeShot(page, 'kerit-before-click.png');
 
