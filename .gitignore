@@ -1,0 +1,12 @@
+node_modules/
+screenshots/
+storage-state*.json
+slim-storage-state.json
+agentscribe-*.js
+agentscribe-*.json
+trace.zip
+*.log
+.env
+.DS_Store
+Thumbs.db
+.tmp/

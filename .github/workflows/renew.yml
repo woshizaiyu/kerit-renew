@@ -1,0 +1,83 @@
+name: Kerit Auto Renew
+
+on:
+  schedule:
+    # 每日巡检一次（Kerit 每天-1天；门控未到期免开浏览器）
+    - cron: '10 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          npm install --legacy-peer-deps
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: ⚙️ 部署 sing-box 代理
+        # 注：if 里不能用 secrets 上下文；无 NODE_LINK 时脚本自行直连退出
+        continue-on-error: true
+        env:
+          NODE_LINK: ${{ secrets.NODE_LINK }}
+        run: |
+          bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
+          # setup_proxy.sh 成功时写 GITHUB_ENV: IS_PROXY=true / PROXY_SERVER=socks5://127.0.0.1:1080
+
+      - name: 🔐 验证登录凭证
+        run: |
+          if [ -z "${{ secrets.KERIT_EMAIL }}" ] && [ -z "${{ secrets.AUTH_STATE }}" ]; then
+            echo "❌ 未配置 KERIT_EMAIL / KERIT_PASSWORD，或 AUTH_STATE"
+            exit 1
+          fi
+
+      - name: 🚀 运行续期脚本
+        env:
+          KERIT_EMAIL: ${{ secrets.KERIT_EMAIL }}
+          KERIT_PASSWORD: ${{ secrets.KERIT_PASSWORD }}
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'https://billing.kerit.cloud/dashboard' }}
+          AUTH_STATE: ${{ secrets.AUTH_STATE }}
+          AUTH_STATE_FILE: ''
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          AUTO_UPDATE_STATE: ${{ vars.AUTO_UPDATE_STATE || 'true' }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
+          HEADLESS: true
+          TIMEZONE: ${{ vars.TIMEZONE || 'Asia/Shanghai' }}
+          LOCALE: en-US
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: npm start
+
+      - name: ☁️ 上传截图与日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kerit-Artifacts-${{ github.run_number }}
+          path: screenshots/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: 🧹 清理旧工作流记录
+        if: always()
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          retain_min_runs: 1

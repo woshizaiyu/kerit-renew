@@ -1,0 +1,24 @@
+{
+  "name": "kerit-renew",
+  "version": "0.1.0",
+  "description": "Kerit Cloud (https://billing.kerit.cloud) 免费 Discord Bot 每日 heartbeat 续期",
+  "main": "renew.js",
+  "scripts": {
+    "start": "node renew.js",
+    "renew": "node renew.js",
+    "selftest": "node renew.js --selftest"
+  },
+  "keywords": [
+    "kerit",
+    "auto-renew",
+    "playwright",
+    "github-actions"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
