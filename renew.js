@@ -388,6 +388,15 @@ async function renewHeartbeat(context, liveState) {
     const hint = await page.locator('.fh-hint').first().innerText().catch(() => '');
     if (hint) log(`📝 页面提示: ${hint.slice(0, 120)}`);
 
+    // 页面即真理：disabled + 顶满/用完 hint 直接 PENDING，不等 30s
+    const earlyDis = await btn.isDisabled().catch(() => null);
+    if (earlyDis && /topped up|weekly heartbeats used/i.test(hint)) {
+      result.status = 'PENDING';
+      result.note = hint.slice(0, 100);
+      log(`⏳ ${result.note}`);
+      return result;
+    }
+
     // 等使能（周次数用完/顶满时会一直 disabled，30s 后按 SKIP 处理）
     try {
       await page.waitForFunction(
